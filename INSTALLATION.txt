@@ -1,0 +1,97 @@
+COMPLETE INSTALLATION GUIDE
+===========================
+
+YOUR CURRENT SETUP:
+~/Downloads/soc-ultimate-v4/
+├── backend/
+│   └── main.py (your current backend)
+└── frontend/
+    └── app/
+        └── page.tsx (your current frontend)
+
+WHAT YOU'LL DO:
+1. Replace backend/main.py with NEW enhanced version
+2. Replace frontend/app/page.tsx with NEW complete version  
+3. Add 3 new component files
+4. Install 3 new packages
+5. Done!
+
+STEP-BY-STEP:
+=============
+
+STEP 1: BACKEND
+---------------
+cd ~/Downloads/soc-ultimate-v4/backend
+
+# Backup old file
+mv main.py main-old-backup.py
+
+# Download and copy NEW main.py from package
+cp ~/Downloads/SOC-ULTIMATE-COMPLETE/backend/main.py ./
+
+# Restart backend
+# (Ctrl+C to stop if running)
+source venv/bin/activate
+uvicorn main:app --reload
+
+✅ You should see: "WebSocket endpoint ready at /ws"
+
+
+STEP 2: FRONTEND
+----------------
+cd ~/Downloads/soc-ultimate-v4/frontend
+
+# Install 3 new packages
+npm install socket.io-client react-simple-maps d3-geo
+
+# Create components folder
+mkdir -p app/components
+
+# Backup old file
+mv app/page.tsx app/page-old-backup.tsx
+
+# Copy NEW files
+cp ~/Downloads/SOC-ULTIMATE-COMPLETE/frontend/page.tsx app/
+cp ~/Downloads/SOC-ULTIMATE-COMPLETE/frontend/components/* app/components/
+
+# Restart frontend
+# (Ctrl+C to stop if running)
+npm run dev
+
+✅ You should see new "Attack Map" tab!
+
+
+STEP 3: TEST
+------------
+1. Visit: http://localhost:3000
+2. Click "Attack Map" tab → See world map
+3. Click any alert → See "Run Playbook" button
+4. Look at right sidebar → See "LIVE FEED 🟢 Connected"
+
+DONE! 🎉
+
+
+WHAT'S NEW:
+===========
+- Attack Map tab with interactive world map
+- Run Playbook button in alert details
+- Live Feed sidebar (real-time updates)
+- WebSocket connection (no more refresh!)
+- 6 automated playbooks
+- Time saved metrics
+- Desktop notifications
+
+FILES CHANGED:
+==============
+backend/main.py - Enhanced with WebSocket + playbooks
+frontend/app/page.tsx - Complete with all 3 features
+frontend/app/components/AttackMap.tsx - NEW
+frontend/app/components/PlaybookRunner.tsx - NEW  
+frontend/app/components/LiveFeed.tsx - NEW
+
+All your existing features still work:
+✅ Charts
+✅ Dark mode
+✅ PDF export
+✅ Shift reports
+✅ Everything!
