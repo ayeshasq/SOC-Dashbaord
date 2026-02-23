@@ -7,9 +7,6 @@ import random
 import json
 import asyncio
 
-# Add after app initialization
-active_connections: List[WebSocket] = []
-
 app = FastAPI(title="SOC Operations API")
 
 # CORS
@@ -28,6 +25,9 @@ status_db = {}
 threat_actors_db = {}
 false_positive_patterns = []
 alert_groups = {}
+
+# WebSocket connections for Live Feed
+active_connections: List[WebSocket] = []
 
 # Models
 class Alert(BaseModel):
@@ -920,91 +920,88 @@ async def add_note(note: Note):
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket for real-time updates"""
     await websocket.accept()
+    active_connections.append(websocket)
+    
     try:
+        # Send connection confirmation
+        await websocket.send_json({
+            "type": "connection",
+            "status": "connected",
+            "message": "Connected to SOC Dashboard Live Feed"
+        })
+        
+        # Keep connection alive with heartbeat
         while True:
-            await websocket.receive_text()
-    except:
+            try:
+                # Wait for messages from client (or timeout after 30s)
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # Send ping to keep connection alive
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except:
+                    break
+            except:
+                break
+                
+    except WebSocketDisconnect:
         pass
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+
+
+# Helper function to broadcast alerts to all connected clients
+async def broadcast_new_alert(alert_data):
+    """Broadcast new alert to all WebSocket connections"""
+    disconnected = []
+    for connection in active_connections:
+        try:
+            await connection.send_json({
+                "type": "new_alert",
+                "alert": alert_data
+            })
+        except Exception:
+            disconnected.append(connection)
+    
+    # Remove disconnected clients
+    for conn in disconnected:
+        if conn in active_connections:
+            active_connections.remove(conn)
+
+
+# Test endpoint to simulate new alerts
+@app.post("/api/alerts/simulate")
+async def simulate_alert():
+    """Simulate a new alert for testing Live Feed"""
+    alert_types = ["malware_detection", "brute_force", "port_scan", "data_exfiltration", "phishing"]
+    severities = ["critical", "high", "medium", "low"]
+    assets = ["Payment Server", "Web Server", "Database Server", "VPN Gateway", "Email Server"]
+    
+    new_alert = {
+        "alert_id": f"alert_{random.randint(1000, 9999)}",
+        "timestamp": datetime.now().isoformat(),
+        "alert_type": random.choice(alert_types),
+        "severity": random.choice(severities),
+        "source_ip": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
+        "dest_ip": "192.168.1.100",
+        "asset_name": random.choice(assets),
+        "signature_name": "Simulated Alert for Testing",
+        "status": "new",
+        "priority_level": "immediate" if random.choice([True, False]) else "normal"
+    }
+    
+    # Broadcast to all connected WebSocket clients
+    await broadcast_new_alert(new_alert)
+    
+    # Also add to alerts_db so it appears in main alerts list
+    alerts_db[new_alert["alert_id"]] = new_alert
+    
+    return {"status": "success", "message": "Alert simulated and broadcasted", "alert": new_alert}
+
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-# ===============================================
-   # WEBSOCKET ENDPOINT FOR LIVE FEED
-   # ===============================================
-   
-   @app.websocket("/ws")
-   async def websocket_endpoint(websocket: WebSocket):
-       """WebSocket endpoint for real-time alerts"""
-       await websocket.accept()
-       active_connections.append(websocket)
-       
-       try:
-           # Send initial connection confirmation
-           await websocket.send_json({
-               "type": "connection",
-               "message": "Connected to SOC Dashboard"
-           })
-           
-           # Keep connection alive
-           while True:
-               # Wait for any message from client (ping/pong)
-               try:
-                   data = await websocket.receive_text()
-               except:
-                   break
-                   
-       except WebSocketDisconnect:
-           active_connections.remove(websocket)
-       except Exception as e:
-           if websocket in active_connections:
-               active_connections.remove(websocket)
-   
-   
-   # Broadcast new alerts to all connected clients
-   async def broadcast_alert(alert_data):
-       """Send new alert to all WebSocket connections"""
-       dead_connections = []
-       for connection in active_connections:
-           try:
-               await connection.send_json({
-                   "type": "new_alert",
-                   "alert": alert_data
-               })
-           except:
-               dead_connections.append(connection)
-       
-       # Clean up dead connections
-       for dead in dead_connections:
-           if dead in active_connections:
-               active_connections.remove(dead)
-   
-   
-   # Add this endpoint to simulate new alerts for testing
-   @app.post("/api/alerts/simulate")
-   async def simulate_new_alert():
-       """Simulate a new alert for testing Live Feed"""
-       import random
-       from datetime import datetime
-       
-       alert_types = ["malware_detection", "brute_force", "port_scan", "data_exfiltration"]
-       severities = ["critical", "high", "medium", "low"]
-       
-       new_alert = {
-           "alert_id": f"alert_{random.randint(1000, 9999)}",
-           "timestamp": datetime.now().isoformat(),
-           "alert_type": random.choice(alert_types),
-           "severity": random.choice(severities),
-           "source_ip": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
-           "dest_ip": "192.168.1.100",
-           "asset_name": "Test Server",
-           "signature_name": "Test Alert",
-           "status": "new"
-       }
-       
-       # Broadcast to all WebSocket connections
-       await broadcast_alert(new_alert)
-       
-       return {"message": "Alert simulated and broadcasted", "alert": new_alert}
