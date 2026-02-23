@@ -7,6 +7,9 @@ import random
 import json
 import asyncio
 
+# Add after app initialization
+active_connections: List[WebSocket] = []
+
 app = FastAPI(title="SOC Operations API")
 
 # CORS
