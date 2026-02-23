@@ -1,10 +1,11 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
 import random
 import json
+import asyncio
 
 app = FastAPI(title="SOC Operations API")
 
@@ -925,3 +926,103 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# ===============================================
+# WEBSOCKET FOR LIVE FEED
+# ===============================================
+
+from fastapi import WebSocket, WebSocketDisconnect
+from typing import List
+
+active_connections: List[WebSocket] = []
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    active_connections.append(websocket)
+    try:
+        await websocket.send_json({"type": "connection", "message": "Connected"})
+        while True:
+            data = await websocket.receive_text()
+    except:
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+
+# ===============================================
+   # WEBSOCKET ENDPOINT FOR LIVE FEED
+   # ===============================================
+   
+   @app.websocket("/ws")
+   async def websocket_endpoint(websocket: WebSocket):
+       """WebSocket endpoint for real-time alerts"""
+       await websocket.accept()
+       active_connections.append(websocket)
+       
+       try:
+           # Send initial connection confirmation
+           await websocket.send_json({
+               "type": "connection",
+               "message": "Connected to SOC Dashboard"
+           })
+           
+           # Keep connection alive
+           while True:
+               # Wait for any message from client (ping/pong)
+               try:
+                   data = await websocket.receive_text()
+               except:
+                   break
+                   
+       except WebSocketDisconnect:
+           active_connections.remove(websocket)
+       except Exception as e:
+           if websocket in active_connections:
+               active_connections.remove(websocket)
+   
+   
+   # Broadcast new alerts to all connected clients
+   async def broadcast_alert(alert_data):
+       """Send new alert to all WebSocket connections"""
+       dead_connections = []
+       for connection in active_connections:
+           try:
+               await connection.send_json({
+                   "type": "new_alert",
+                   "alert": alert_data
+               })
+           except:
+               dead_connections.append(connection)
+       
+       # Clean up dead connections
+       for dead in dead_connections:
+           if dead in active_connections:
+               active_connections.remove(dead)
+   
+   
+   # Add this endpoint to simulate new alerts for testing
+   @app.post("/api/alerts/simulate")
+   async def simulate_new_alert():
+       """Simulate a new alert for testing Live Feed"""
+       import random
+       from datetime import datetime
+       
+       alert_types = ["malware_detection", "brute_force", "port_scan", "data_exfiltration"]
+       severities = ["critical", "high", "medium", "low"]
+       
+       new_alert = {
+           "alert_id": f"alert_{random.randint(1000, 9999)}",
+           "timestamp": datetime.now().isoformat(),
+           "alert_type": random.choice(alert_types),
+           "severity": random.choice(severities),
+           "source_ip": f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
+           "dest_ip": "192.168.1.100",
+           "asset_name": "Test Server",
+           "signature_name": "Test Alert",
+           "status": "new"
+       }
+       
+       # Broadcast to all WebSocket connections
+       await broadcast_alert(new_alert)
+       
+       return {"message": "Alert simulated and broadcasted", "alert": new_alert}
