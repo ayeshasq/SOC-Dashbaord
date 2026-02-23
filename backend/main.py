@@ -932,27 +932,6 @@ if __name__ == "__main__":
 
 
 # ===============================================
-# WEBSOCKET FOR LIVE FEED
-# ===============================================
-
-from fastapi import WebSocket, WebSocketDisconnect
-from typing import List
-
-active_connections: List[WebSocket] = []
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    active_connections.append(websocket)
-    try:
-        await websocket.send_json({"type": "connection", "message": "Connected"})
-        while True:
-            data = await websocket.receive_text()
-    except:
-        if websocket in active_connections:
-            active_connections.remove(websocket)
-
-# ===============================================
    # WEBSOCKET ENDPOINT FOR LIVE FEED
    # ===============================================
    
