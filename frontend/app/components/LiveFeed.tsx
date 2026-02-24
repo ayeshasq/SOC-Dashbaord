@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Activity, Wifi, WifiOff, Bell } from 'lucide-react';
-import { io, Socket } from 'socket.io-client';
 
 interface LiveAlert {
   alert_id: string;
@@ -23,53 +22,90 @@ export default function LiveFeed({ apiUrl, darkMode, onAlertClick }: LiveFeedPro
   const [isConnected, setIsConnected] = useState(false);
   const [recentAlerts, setRecentAlerts] = useState<LiveAlert[]>([]);
   const [totalToday, setTotalToday] = useState(0);
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Connect to WebSocket
-    const wsUrl = apiUrl.replace('http', 'ws');
-    const newSocket = io(wsUrl, {
-      transports: ['websocket', 'polling']
-    });
-
-    newSocket.on('connect', () => {
-      console.log('WebSocket connected');
-      setIsConnected(true);
-    });
-
-    newSocket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
-      setIsConnected(false);
-    });
-
-    newSocket.on('new_alert', (alert: LiveAlert) => {
-      console.log('New alert received:', alert);
-      
-      // Add to recent alerts (keep last 10)
-      setRecentAlerts(prev => [alert, ...prev].slice(0, 10));
-      
-      // Increment total
-      setTotalToday(prev => prev + 1);
-      
-      // Show desktop notification for critical alerts
-      if (alert.severity === 'critical' && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification('🚨 Critical Alert', {
-          body: `${alert.alert_type} on ${alert.asset_name}`,
-          icon: '/favicon.ico'
-        });
-      }
-    });
-
-    newSocket.on('alert_update', (data: { alert_id: string; status: string }) => {
-      console.log('Alert updated:', data);
-    });
-
-    setSocket(newSocket);
-
+    connectWebSocket();
+    
     return () => {
-      newSocket.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
     };
   }, [apiUrl]);
+
+  const connectWebSocket = () => {
+    // Convert http/https to ws/wss
+    const wsUrl = apiUrl.replace('https://', 'wss://').replace('http://', 'ws://');
+    const fullWsUrl = `${wsUrl}/ws`;
+    
+    console.log('Connecting to WebSocket:', fullWsUrl);
+    
+    try {
+      const ws = new WebSocket(fullWsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setIsConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('WebSocket message:', data);
+          
+          if (data.type === 'new_alert' && data.alert) {
+            const alert = data.alert;
+            
+            // Add to recent alerts (keep last 10)
+            setRecentAlerts(prev => [alert, ...prev].slice(0, 10));
+            
+            // Increment total
+            setTotalToday(prev => prev + 1);
+            
+            // Show desktop notification for critical alerts
+            if (alert.severity === 'critical' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification('🚨 Critical Alert', {
+                body: `${alert.alert_type} on ${alert.asset_name}`,
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setIsConnected(false);
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        setIsConnected(false);
+        
+        // Attempt to reconnect after 5 seconds
+        reconnectTimeoutRef.current = setTimeout(() => {
+          console.log('Attempting to reconnect...');
+          connectWebSocket();
+        }, 5000);
+      };
+      
+    } catch (error) {
+      console.error('Failed to create WebSocket:', error);
+      setIsConnected(false);
+      
+      // Retry connection after 5 seconds
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connectWebSocket();
+      }, 5000);
+    }
+  };
 
   // Request notification permission
   useEffect(() => {
@@ -79,10 +115,14 @@ export default function LiveFeed({ apiUrl, darkMode, onAlertClick }: LiveFeedPro
   }, []);
 
   const getTimeSince = (timestamp: string) => {
-    const seconds = Math.floor((new Date().getTime() - new Date(timestamp).getTime()) / 1000);
-    if (seconds < 60) return `${seconds}s ago`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    return `${Math.floor(seconds / 3600)}h ago`;
+    try {
+      const seconds = Math.floor((new Date().getTime() - new Date(timestamp).getTime()) / 1000);
+      if (seconds < 60) return `${seconds}s ago`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+      return `${Math.floor(seconds / 3600)}h ago`;
+    } catch {
+      return 'just now';
+    }
   };
 
   const getSeverityColor = (severity: string) => {
